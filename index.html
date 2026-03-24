@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Portal de Notas - Colegio</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- LOGIN -->
+  <div id="loginScreen" class="screen active">
+    <div class="login-container">
+      <div class="login-logo">
+        <div class="logo-icon">🎓</div>
+        <h1>Portal Académico</h1>
+        <p>Colegio San Andrés</p>
+      </div>
+      <form id="loginForm" class="login-form">
+        <div class="form-group">
+          <label>Usuario</label>
+          <input type="text" id="username" placeholder="Ej: alumno01" autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label>Contraseña</label>
+          <input type="password" id="password" placeholder="••••••••" autocomplete="current-password" />
+        </div>
+        <div id="loginError" class="login-error hidden">Usuario o contraseña incorrectos</div>
+        <button type="submit" class="btn-primary btn-full">Iniciar Sesión</button>
+      </form>
+      <div class="login-hint">
+        <span>Demo: <strong>alumno01</strong> / <strong>1234</strong></span>
+        <span>o</span>
+        <span>Demo: <strong>alumno02</strong> / <strong>1234</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="appScreen" class="screen hidden">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-icon small">🎓</div>
+        <div>
+          <div class="school-name">Colegio San Andrés</div>
+          <div class="school-year">Año 2026</div>
+        </div>
+        <button class="sidebar-close" id="sidebarClose">✕</button>
+      </div>
+
+      <div class="student-card">
+        <div class="student-avatar" id="studentAvatar">A</div>
+        <div class="student-info">
+          <div class="student-name" id="studentName">–</div>
+          <div class="student-grade" id="studentGrade">–</div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-section="resumen">
+          <span class="nav-icon">📊</span> Resumen
+        </button>
+        <button class="nav-item" data-section="notas">
+          <span class="nav-icon">📋</span> Mis Notas
+        </button>
+        <button class="nav-item" data-section="asistencia">
+          <span class="nav-icon">📅</span> Asistencia
+        </button>
+        <button class="nav-item" data-section="comunicados">
+          <span class="nav-icon">📢</span> Comunicados
+        </button>
+      </nav>
+
+      <button class="btn-logout" id="logoutBtn">
+        <span>🚪</span> Cerrar Sesión
+      </button>
+    </aside>
+
+    <!-- OVERLAY -->
+    <div class="sidebar-overlay hidden" id="sidebarOverlay"></div>
+
+    <!-- MAIN -->
+    <main class="main-content">
+      <header class="topbar">
+        <button class="hamburger" id="hamburger">☰</button>
+        <div class="topbar-title" id="topbarTitle">Resumen</div>
+        <div class="topbar-right">
+          <div class="semester-selector">
+            <select id="semesterSelect">
+              <option value="1">1er Semestre</option>
+              <option value="2">2do Semestre</option>
+            </select>
+          </div>
+          <div class="student-badge" id="topbarBadge">A</div>
+        </div>
+      </header>
+
+      <!-- SECCION: RESUMEN -->
+      <section id="section-resumen" class="content-section active">
+        <div class="section-header">
+          <h2>Resumen Académico</h2>
+          <p>Vista general de tu rendimiento</p>
+        </div>
+        <div id="summaryCards" class="summary-cards"></div>
+        <div class="charts-row">
+          <div class="chart-card">
+            <h3>Promedio por Asignatura</h3>
+            <div id="barChart" class="bar-chart"></div>
+          </div>
+          <div class="chart-card">
+            <h3>Estado General</h3>
+            <div id="statusChart" class="status-chart"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SECCION: NOTAS -->
+      <section id="section-notas" class="content-section hidden">
+        <div class="section-header">
+          <h2>Mis Notas</h2>
+          <p>Detalle por asignatura con porcentajes y nota final</p>
+        </div>
+        <div id="gradesContainer" class="grades-container"></div>
+      </section>
+
+      <!-- SECCION: ASISTENCIA -->
+      <section id="section-asistencia" class="content-section hidden">
+        <div class="section-header">
+          <h2>Asistencia</h2>
+          <p>Registro de asistencia del semestre</p>
+        </div>
+        <div id="attendanceContainer" class="attendance-container"></div>
+      </section>
+
+      <!-- SECCION: COMUNICADOS -->
+      <section id="section-comunicados" class="content-section hidden">
+        <div class="section-header">
+          <h2>Comunicados</h2>
+          <p>Noticias y avisos del colegio</p>
+        </div>
+        <div id="comunicadosContainer" class="comunicados-container"></div>
+      </section>
+    </main>
+
+  </div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
