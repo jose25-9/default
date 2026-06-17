@@ -152,6 +152,7 @@ function crearWidgetMediano(datos, montos) {
   const costoCash = montos.cash; // dólares en efectivo directos
   const bcvGana = costoBCV < costoCash;
   const diferencia = Math.abs(costoBCV - costoCash);
+  const difBs = Math.abs(montos.bcv * oficial - montos.cash * paralelo);
 
   filaOpcion(w, `BCV  ${fmt(montos.bcv)}$`, `${fmt(costoBCV)}$ cash`, bcvGana);
   w.addSpacer(5);
@@ -159,8 +160,10 @@ function crearWidgetMediano(datos, montos) {
 
   w.addSpacer(10);
 
-  // Diferencia en dólares (debajo de la flecha)
-  const dif = w.addText(`Diferencia: ${fmt(diferencia)}$ a favor de ${bcvGana ? "BCV" : "Cash"}`);
+  // Diferencia en dólares y bolívares (debajo de la flecha)
+  const dif = w.addText(
+    `Diferencia: ${fmt(diferencia)}$ · Bs. ${fmt(difBs)} a favor de ${bcvGana ? "BCV" : "Cash"}`,
+  );
   dif.font = Font.boldSystemFont(12);
   dif.textColor = VERDE;
 
@@ -178,12 +181,16 @@ function textoComparacion(datos, bcv, cash) {
   const costoBCV = bcv * (oficial / paralelo);
   const costoCash = cash;
   const bcvGana = costoBCV < costoCash;
-  const diferencia = Math.abs(costoBCV - costoCash);
+  const difUSD = Math.abs(costoBCV - costoCash);
+  // Equivalentes en bolívares
+  const bcvBs = bcv * oficial; // lo que te cobra el vendedor
+  const cashBs = cash * paralelo; // valor de esos dólares cash
+  const difBs = Math.abs(bcvBs - cashBs);
   return (
-    `BCV  ${fmt(bcv)}$  =  ${fmt(costoBCV)}$ cash\n` +
-    `Cash ${fmt(cash)}$  =  ${fmt(costoCash)}$ cash\n\n` +
+    `BCV  ${fmt(bcv)}$  =  ${fmt(costoBCV)}$ cash  ·  Bs. ${fmt(bcvBs)}\n` +
+    `Cash ${fmt(cash)}$  =  ${fmt(costoCash)}$ cash  ·  Bs. ${fmt(cashBs)}\n\n` +
     `🟢 Conviene pagar en: ${bcvGana ? "BCV" : "CASH"}\n` +
-    `Diferencia: ${fmt(diferencia)}$ a favor`
+    `Diferencia: ${fmt(difUSD)}$  (Bs. ${fmt(difBs)}) a favor`
   );
 }
 
