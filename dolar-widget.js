@@ -49,7 +49,7 @@ async function crearWidget() {
   w.addSpacer(6);
 
   const pct = w.addText(`${fmt(brecha)} %`);
-  pct.font = Font.boldSystemFont(34);
+  pct.font = Font.boldSystemFont(28);
   pct.textColor = brecha >= 0 ? new Color("#ff6b6b") : new Color("#51cf66");
 
   w.addSpacer(8);
