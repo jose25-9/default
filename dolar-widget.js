@@ -172,40 +172,73 @@ function crearWidgetMediano(datos, montos) {
   return w;
 }
 
+// Texto de resultado para mostrar rápido (usado por el Atajo)
+function textoComparacion(datos, bcv, cash) {
+  const { oficial, paralelo } = datos;
+  const costoBCV = bcv * (oficial / paralelo);
+  const costoCash = cash;
+  const bcvGana = costoBCV < costoCash;
+  const diferencia = Math.abs(costoBCV - costoCash);
+  return (
+    `BCV  ${fmt(bcv)}$  =  ${fmt(costoBCV)}$ cash\n` +
+    `Cash ${fmt(cash)}$  =  ${fmt(costoCash)}$ cash\n\n` +
+    `🟢 Conviene pagar en: ${bcvGana ? "BCV" : "CASH"}\n` +
+    `Diferencia: ${fmt(diferencia)}$ a favor`
+  );
+}
+
 // ===================== Flujo principal =====================
 const datos = await obtenerDatos();
 
-// Si abriste el script tocando el widget (corre dentro de la app), pide los montos
-// y calcula solo en ese momento. No se guarda ni se recuerda nada.
-let montos = { bcv: null, cash: null };
-if (config.runsInApp) {
-  const nuevos = await pedirMontos();
-  if (nuevos) montos = nuevos;
+// Llamado desde un Atajo (Shortcut): recibe "bcv|cash", calcula y devuelve el
+// texto del resultado para mostrarlo como ventanita en la pantalla de inicio.
+const llamadoDesdeAtajo = args.shortcutParameter != null;
+if (llamadoDesdeAtajo) {
+  const partes = String(args.shortcutParameter).split("|");
+  const bcv = parseFloat((partes[0] || "").replace(",", "."));
+  const cash = parseFloat((partes[1] || "").replace(",", "."));
+  if (isNaN(bcv) || isNaN(cash)) {
+    Script.setShortcutOutput("Montos inválidos. Ingresa dos números.");
+  } else {
+    Script.setShortcutOutput(textoComparacion(datos, bcv, cash));
+  }
+  Script.complete();
 }
 
-const family = config.widgetFamily; // "small", "medium", "large" o null
+// Si NO vino del Atajo, se comporta como widget / vista en la app.
+if (!llamadoDesdeAtajo) {
+  // Si abriste el script tocando el widget (corre dentro de la app), pide los montos
+  // y calcula solo en ese momento. No se guarda ni se recuerda nada.
+  let montos = { bcv: null, cash: null };
+  if (config.runsInApp) {
+    const nuevos = await pedirMontos();
+    if (nuevos) montos = nuevos;
+  }
 
-let widget;
-if (family === "small") {
-  widget = crearWidgetPequeno(datos);
-} else {
-  widget = crearWidgetMediano(datos, montos);
+  const family = config.widgetFamily; // "small", "medium", "large" o null
+
+  let widget;
+  if (family === "small") {
+    widget = crearWidgetPequeno(datos);
+  } else {
+    widget = crearWidgetMediano(datos, montos);
+  }
+
+  // Sugerir a iOS el próximo refresco para mañana a las 8:30 a. m.
+  // (iOS lo toma como sugerencia; la hora exacta la garantiza la automatización
+  //  de Atajos que ejecuta este script a las 8:30.)
+  const proxima = new Date();
+  proxima.setHours(8, 30, 0, 0);
+  if (proxima <= new Date()) proxima.setDate(proxima.getDate() + 1);
+  widget.refreshAfterDate = proxima;
+
+  if (config.runsInWidget) {
+    Script.setWidget(widget);
+  } else if (family === "small") {
+    widget.presentSmall();
+  } else {
+    widget.presentMedium();
+  }
+
+  Script.complete();
 }
-
-// Sugerir a iOS el próximo refresco para mañana a las 8:30 a. m.
-// (iOS lo toma como sugerencia; la hora exacta la garantiza la automatización
-//  de Atajos que ejecuta este script a las 8:30.)
-const proxima = new Date();
-proxima.setHours(8, 30, 0, 0);
-if (proxima <= new Date()) proxima.setDate(proxima.getDate() + 1);
-widget.refreshAfterDate = proxima;
-
-if (config.runsInWidget) {
-  Script.setWidget(widget);
-} else if (family === "small") {
-  widget.presentSmall();
-} else {
-  widget.presentMedium();
-}
-
-Script.complete();
