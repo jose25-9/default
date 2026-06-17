@@ -12,6 +12,7 @@ const API_URL = "https://ve.dolarapi.com/v1/dolares";
 // Nombre EXACTO del Atajo (Shortcut) que pide los montos y muestra el resultado.
 // Al tocar el widget se abrirá este Atajo en vez de la app de Scriptable.
 const NOMBRE_ATAJO = "Comparar Dólar";
+const ATAJO_URL = `shortcuts://run-shortcut?name=${encodeURIComponent(NOMBRE_ATAJO)}`;
 
 // --- Colores ---
 const FONDO = new Color("#0d1b2a");
@@ -129,10 +130,17 @@ function crearWidgetMediano(datos, montos) {
   w.backgroundColor = FONDO;
   w.setPadding(14, 16, 14, 16);
 
-  const titulo = w.addText("¿Cómo me conviene pagar?");
+  // Todo el contenido va dentro de este stack, que lleva el enlace al Atajo.
+  // (En widgets medianos/grandes el widget.url se ignora; el enlace debe ir
+  //  en los elementos internos.)
+  const c = w.addStack();
+  c.layoutVertically();
+  c.url = ATAJO_URL;
+
+  const titulo = c.addText("¿Cómo me conviene pagar?");
   titulo.font = Font.boldSystemFont(14);
   titulo.textColor = GRIS;
-  w.addSpacer(10);
+  c.addSpacer(10);
 
   const sinDatos =
     montos.bcv == null ||
@@ -141,11 +149,11 @@ function crearWidgetMediano(datos, montos) {
     isNaN(montos.cash);
 
   if (sinDatos) {
-    const aviso = w.addText("Toca el widget para ingresar los dos montos (BCV y cash).");
+    const aviso = c.addText("Toca el widget para ingresar los dos montos (BCV y cash).");
     aviso.font = Font.systemFont(13);
     aviso.textColor = BLANCO;
-    w.addSpacer(10);
-    const tasas = w.addText(`Oficial Bs.${fmt(oficial)} · Paralelo Bs.${fmt(paralelo)}`);
+    c.addSpacer(10);
+    const tasas = c.addText(`Oficial Bs.${fmt(oficial)} · Paralelo Bs.${fmt(paralelo)}`);
     tasas.font = Font.systemFont(10);
     tasas.textColor = GRIS_OSCURO;
     return w;
@@ -158,21 +166,21 @@ function crearWidgetMediano(datos, montos) {
   const diferencia = Math.abs(costoBCV - costoCash);
   const difBs = Math.abs(montos.bcv * oficial - montos.cash * paralelo);
 
-  filaOpcion(w, `BCV  ${fmt(montos.bcv)}$`, `${fmt(costoBCV)}$ cash`, bcvGana);
-  w.addSpacer(5);
-  filaOpcion(w, `Cash ${fmt(montos.cash)}$`, `${fmt(costoCash)}$ cash`, !bcvGana);
+  filaOpcion(c, `BCV  ${fmt(montos.bcv)}$`, `${fmt(costoBCV)}$ cash`, bcvGana);
+  c.addSpacer(5);
+  filaOpcion(c, `Cash ${fmt(montos.cash)}$`, `${fmt(costoCash)}$ cash`, !bcvGana);
 
-  w.addSpacer(10);
+  c.addSpacer(10);
 
   // Diferencia en dólares y bolívares (debajo de la flecha)
-  const dif = w.addText(
+  const dif = c.addText(
     `Diferencia: ${fmt(diferencia)}$ · Bs. ${fmt(difBs)} a favor de ${bcvGana ? "BCV" : "Cash"}`,
   );
   dif.font = Font.boldSystemFont(12);
   dif.textColor = VERDE;
 
-  w.addSpacer(4);
-  const tasas = w.addText(`Oficial Bs.${fmt(oficial)} · Paralelo Bs.${fmt(paralelo)}`);
+  c.addSpacer(4);
+  const tasas = c.addText(`Oficial Bs.${fmt(oficial)} · Paralelo Bs.${fmt(paralelo)}`);
   tasas.font = Font.systemFont(9);
   tasas.textColor = GRIS_OSCURO;
 
@@ -236,8 +244,9 @@ if (!llamadoDesdeAtajo) {
   }
 
   // Al tocar el widget, abrir el Atajo (ventanitas en la pantalla de inicio)
-  // en lugar de abrir la app de Scriptable.
-  widget.url = `shortcuts://run-shortcut?name=${encodeURIComponent(NOMBRE_ATAJO)}`;
+  // en lugar de abrir la app de Scriptable. En el pequeño basta con widget.url;
+  // en el mediano el enlace ya va en el stack interno (ver crearWidgetMediano).
+  widget.url = ATAJO_URL;
 
   // Sugerir a iOS el próximo refresco para mañana a las 8:30 a. m.
   // (iOS lo toma como sugerencia; la hora exacta la garantiza la automatización
