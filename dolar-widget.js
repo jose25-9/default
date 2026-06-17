@@ -211,16 +211,22 @@ const datos = await obtenerDatos();
 
 // Llamado desde un Atajo (Shortcut): recibe "bcv|cash", calcula y devuelve el
 // texto del resultado para mostrarlo como ventanita en la pantalla de inicio.
-const llamadoDesdeAtajo = args.shortcutParameter != null;
+// El valor puede llegar como shortcutParameter o como texto plano, según cómo
+// se configure la acción "Ejecutar script", así que probamos ambos.
+let entradaAtajo = args.shortcutParameter;
+if (entradaAtajo == null && args.plainTexts && args.plainTexts.length > 0) {
+  entradaAtajo = args.plainTexts.join("");
+}
+const llamadoDesdeAtajo = entradaAtajo != null;
 if (llamadoDesdeAtajo) {
-  const partes = String(args.shortcutParameter).split("|");
+  const partes = String(entradaAtajo).split("|");
   const bcv = parseFloat((partes[0] || "").replace(",", "."));
   const cash = parseFloat((partes[1] || "").replace(",", "."));
-  if (isNaN(bcv) || isNaN(cash)) {
-    Script.setShortcutOutput("Montos inválidos. Ingresa dos números.");
-  } else {
-    Script.setShortcutOutput(textoComparacion(datos, bcv, cash));
-  }
+  const resultado =
+    isNaN(bcv) || isNaN(cash)
+      ? `Montos inválidos. Recibí: "${entradaAtajo}". Deben ser dos números separados por |`
+      : textoComparacion(datos, bcv, cash);
+  Script.setShortcutOutput(resultado);
   Script.complete();
 }
 
