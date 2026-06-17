@@ -73,6 +73,14 @@ async function crearWidget() {
 
 const widget = await crearWidget();
 
+// Sugerir a iOS el próximo refresco para mañana a las 8:30 a. m.
+// (iOS lo toma como sugerencia; la hora exacta se garantiza con la
+//  automatización de Atajos que ejecuta este script a las 8:30.)
+const proxima = new Date();
+proxima.setHours(8, 30, 0, 0);
+if (proxima <= new Date()) proxima.setDate(proxima.getDate() + 1);
+widget.refreshAfterDate = proxima;
+
 if (config.runsInWidget) {
   Script.setWidget(widget);
 } else {
