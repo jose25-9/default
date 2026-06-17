@@ -9,6 +9,10 @@
 
 const API_URL = "https://ve.dolarapi.com/v1/dolares";
 
+// Nombre EXACTO del Atajo (Shortcut) que pide los montos y muestra el resultado.
+// Al tocar el widget se abrirá este Atajo en vez de la app de Scriptable.
+const NOMBRE_ATAJO = "Comparar Dólar";
+
 // --- Colores ---
 const FONDO = new Color("#0d1b2a");
 const GRIS = new Color("#9bb0c1");
@@ -230,6 +234,10 @@ if (!llamadoDesdeAtajo) {
   } else {
     widget = crearWidgetMediano(datos, montos);
   }
+
+  // Al tocar el widget, abrir el Atajo (ventanitas en la pantalla de inicio)
+  // en lugar de abrir la app de Scriptable.
+  widget.url = `shortcuts://run-shortcut?name=${encodeURIComponent(NOMBRE_ATAJO)}`;
 
   // Sugerir a iOS el próximo refresco para mañana a las 8:30 a. m.
   // (iOS lo toma como sugerencia; la hora exacta la garantiza la automatización
