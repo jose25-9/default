@@ -44,28 +44,13 @@ function fmt(n) {
   });
 }
 
-// --- Guardar/leer los montos ingresados ---
-function leerMontos() {
-  const bcv = Keychain.contains("dolar_bcv")
-    ? parseFloat(Keychain.get("dolar_bcv"))
-    : null;
-  const cash = Keychain.contains("dolar_cash")
-    ? parseFloat(Keychain.get("dolar_cash"))
-    : null;
-  return { bcv, cash };
-}
-
-function guardarMontos(bcv, cash) {
-  Keychain.set("dolar_bcv", String(bcv));
-  Keychain.set("dolar_cash", String(cash));
-}
-
-async function pedirMontos(prev) {
+// --- Pedir los montos solo en el momento (no se guarda nada) ---
+async function pedirMontos() {
   const a = new Alert();
   a.title = "Comparar pago";
   a.message = "Ingresa los dos montos en dólares";
-  a.addTextField("Monto BCV ($)", prev.bcv != null ? String(prev.bcv) : "");
-  a.addTextField("Monto cash ($)", prev.cash != null ? String(prev.cash) : "");
+  a.addTextField("Monto BCV ($)", "");
+  a.addTextField("Monto cash ($)", "");
   a.addAction("Comparar");
   a.addCancelAction("Cancelar");
   const idx = await a.presentAlert();
@@ -190,16 +175,14 @@ function crearWidgetMediano(datos, montos) {
 // ===================== Flujo principal =====================
 const datos = await obtenerDatos();
 
-// Si abriste el script tocando el widget (corre dentro de la app), pide los montos.
-// En el refresco en segundo plano / Atajos no se pregunta nada.
+// Si abriste el script tocando el widget (corre dentro de la app), pide los montos
+// y calcula solo en ese momento. No se guarda ni se recuerda nada.
+let montos = { bcv: null, cash: null };
 if (config.runsInApp) {
-  const nuevos = await pedirMontos(leerMontos());
-  if (nuevos && !isNaN(nuevos.bcv) && !isNaN(nuevos.cash)) {
-    guardarMontos(nuevos.bcv, nuevos.cash);
-  }
+  const nuevos = await pedirMontos();
+  if (nuevos) montos = nuevos;
 }
 
-const montos = leerMontos();
 const family = config.widgetFamily; // "small", "medium", "large" o null
 
 let widget;
