@@ -4,15 +4,62 @@ Widget **mediano** que imita el panel de escritorio de límites de uso de Claude
 barras de progreso para la **sesión actual** y el **límite semanal**, porcentajes,
 tiempo transcurrido (anillo), tiempo hasta el reinicio y hora de reinicio.
 
+## Endpoint real y autenticación
+
+El panel de límites de Claude Code se alimenta del endpoint OAuth:
+
+```
+GET https://api.anthropic.com/api/oauth/usage
+Authorization: Bearer sk-ant-oat01-…
+anthropic-beta: oauth-2025-04-20
+```
+
+Respuesta (esquema real):
+
+```json
+{
+  "five_hour":  { "utilization": 33.0, "resets_at": "2026-04-11T07:00:00Z" },
+  "seven_day":  { "utilization": 13.0, "resets_at": "2026-04-17T00:59:59Z" },
+  "seven_day_opus":   null,
+  "seven_day_sonnet": { "utilization": 1.0, "resets_at": "…" },
+  "extra_usage":      { "is_enabled": false, "monthly_limit": null, "used_credits": null, "utilization": null }
+}
+```
+
+- `five_hour` → fila **CURRENT SESSION** (ventana de 5 h).
+- `seven_day` → fila **WEEKLY LIMIT** (límite de 7 días).
+- `utilization` es el porcentaje 0–100; `resets_at` es ISO 8601 (UTC).
+
+> **Importante:** este endpoint usa un **token OAuth** (Pro/Max), **no** la cookie
+> `sessionKey` de claude.ai. El token de acceso **caduca en ~8 h**, por eso el
+> script guarda también el *refresh token* y renueva el acceso automáticamente.
+> El endpoint está **muy rate-limited**: no lo consultes en exceso.
+
+## Cómo obtener las credenciales OAuth
+
+Las credenciales las genera Claude Code al hacer login. Ubicación típica:
+
+- **macOS:** llavero → entrada **“Claude Code-credentials”** (JSON).
+- **Linux/Windows:** `~/.claude/.credentials.json`.
+
+El JSON tiene esta forma (los tokens están recortados aquí):
+
+```json
+{ "claudeAiOauth": { "accessToken": "sk-ant-oat01-…", "refreshToken": "sk-ant-ort01-…", "expiresAt": 1730000000000, "scopes": ["user:inference","user:profile"] } }
+```
+
+Copia **todo ese JSON** (o al menos `accessToken` + `refreshToken`) para pegarlo en el widget.
+
 ## Instalación
 
 1. Instala la app [Scriptable](https://scriptable.app/) desde la App Store.
 2. Crea un script nuevo y pega el contenido de [`claude-usage-widget.js`](./claude-usage-widget.js).
-3. **Ejecuta el script una vez dentro de la app** (botón ▶). Aparecerá un menú:
-   elige **“Guardar sessionKey”** (y/o **“Guardar sessionKeyV3”**) y pega el
-   valor de la cookie. Se almacena **cifrada en el llavero del dispositivo**
-   (`Keychain`), no en el código. Con guardar **una** basta para autenticar;
-   guardar ambas hace el widget más robusto ante cambios de formato de sesión.
+3. **Ejecuta el script una vez dentro de la app** (botón ▶) → **“Guardar
+   credenciales OAuth”** y pega:
+   - el **JSON de credenciales** (recomendado: permite auto-renovación), o
+   - solo el **token de acceso** `sk-ant-oat01-…` (más simple, pero caduca en ~8 h
+     y tendrás que volver a pegarlo).
+   Todo se almacena **cifrado en el llavero del dispositivo** (`Keychain`).
 4. Añade un widget **mediano** a la pantalla de inicio, elige el script Scriptable
    y selecciona este script.
 
@@ -20,29 +67,32 @@ tiempo transcurrido (anillo), tiempo hasta el reinicio y hora de reinicio.
 
 Cumple estos requisitos por diseño:
 
-- **Sin secretos hardcodeados.** Las cookies (`sessionKey` / `sessionKeyV3`)
-  nunca aparecen en el código; cada una se guarda y recupera en su propia
-  entrada con la clase nativa `Keychain` (cifrado del dispositivo). En cada
-  petición se envían solo las que estén presentes.
+- **Sin secretos hardcodeados.** Los tokens (acceso y refresh) nunca aparecen en
+  el código; se guardan y recuperan con la clase nativa `Keychain` (cifrado del
+  dispositivo). El `client_id` de OAuth **sí** va en claro porque es un
+  identificador **público** de cliente, no un secreto.
 - **Validación inicial.** Antes de cualquier petición de red se comprueba si
-  existe al menos una cookie. Si falta, el widget muestra **“Configuración
-  requerida”** y, en la app, ofrece un diálogo para guardarla — nunca crashea
-  ni expone datos.
-- **Entrada oculta.** La llave se introduce con `addSecureTextField`, de modo que
-  no se ve en pantalla mientras se escribe.
-- **Sin fugas en consola.** Ningún `console.log` imprime la `sessionKey` ni la
-  cabecera `Cookie`/autorización completa. Solo se registran mensajes de estado
-  y errores truncados y sin datos sensibles.
+  existe el token. Si falta, el widget muestra **“Configuración requerida”** y,
+  en la app, ofrece un diálogo para guardarlo — nunca crashea ni expone datos.
+- **Entrada oculta.** Las credenciales se introducen con `addSecureTextField`,
+  de modo que no se ven en pantalla mientras se escriben.
+- **Sin fugas en consola.** Ningún `console.log` imprime el token ni la cabecera
+  `Authorization`. Solo se registran mensajes de estado y errores truncados sin
+  datos sensibles.
 
-## Actualizar o borrar las llaves
+## Renovación, actualización y borrado
 
-Ejecuta el script dentro de la app: el menú permite **actualizar** cada cookie
-por separado o **borrar todas** las cookies del llavero en cualquier momento.
+- **Auto-renovación:** si guardaste el refresh token, el widget renueva el token
+  de acceso solo (POST a `https://console.anthropic.com/v1/oauth/token`) cuando
+  está a punto de caducar, y guarda el nuevo token cifrado.
+- **Manual:** ejecuta el script dentro de la app → **“Actualizar credenciales
+  OAuth”** para reemplazarlas, o **“Borrar credenciales del llavero”** para
+  eliminarlas por completo.
 
 ## Nota sobre los datos
 
-El script intenta leer el uso desde el endpoint configurado (`USAGE_URL`) usando
-tu cookie de sesión y procesa la respuesta de forma tolerante. Si la petición
-falla o el formato no coincide, el widget renderiza **datos de muestra** y lo
-indica en el pie (`· datos de muestra`), en lugar de fallar. Ajusta `USAGE_URL`
-y los nombres de campo en `parseUsage()` según el endpoint real de tu cuenta.
+Si la petición falla, el token caducó (401) o el formato no coincide, el widget
+renderiza **datos de muestra** y lo indica en el pie (`· datos de muestra`), en
+lugar de fallar. Los `resets_at` del endpoint son de **ventana deslizante**: el
+`seven_day.resets_at` indica cuándo caduca el tramo más antiguo del periodo, no
+necesariamente cuándo recibes una asignación nueva.

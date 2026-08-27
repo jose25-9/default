@@ -10,33 +10,46 @@
  *  barras de progreso para la sesión actual y el límite semanal, porcentajes,
  *  tiempo transcurrido (anillo) y horas de reinicio.
  *
+ *  ── AUTENTICACIÓN (endpoint real) ─────────────────────────────────────────
+ *  El panel de límites de Claude Code se alimenta del endpoint OAuth:
+ *     GET https://api.anthropic.com/api/oauth/usage
+ *  autenticado con un token OAuth (Pro/Max), NO con la cookie sessionKey.
+ *  El token de acceso caduca (~8 h), así que el script guarda también el
+ *  refresh token y renueva el acceso automáticamente cuando hace falta.
+ *
  *  ── SEGURIDAD (requisitos estrictos) ──────────────────────────────────────
- *  1. La sessionKey NUNCA está hardcodeada en el código. Se guarda cifrada
- *     en el llavero del dispositivo mediante la clase nativa `Keychain`.
- *  2. Al ejecutar el script DENTRO de la app (no como widget), si la llave no
- *     existe se ofrece un cuadro de diálogo para guardarla de forma segura.
- *  3. Un bloque de validación inicial comprueba la existencia de la llave.
+ *  1. Los tokens NUNCA están hardcodeados. Se guardan cifrados en el llavero
+ *     del dispositivo mediante la clase nativa `Keychain`. (El client_id de
+ *     OAuth sí es público — no es un secreto — y por eso puede ir en claro.)
+ *  2. Al ejecutar el script DENTRO de la app (no como widget), si falta el
+ *     token se ofrece un cuadro de diálogo para guardarlo de forma segura.
+ *  3. Un bloque de validación inicial comprueba la existencia del token.
  *     Si falta, se muestra una alerta (modo app) o un widget de "configuración
  *     requerida" (modo widget), en lugar de crashear o exponer datos.
- *  4. Ningún `console.log` imprime la sessionKey ni cabeceras de autorización
- *     completas. El registro de depuración solo usa datos no sensibles.
+ *  4. Ningún `console.log` imprime el token ni la cabecera Authorization.
+ *     El registro de depuración solo usa datos no sensibles.
  * ============================================================================
  */
 
 // ─── Configuración general ──────────────────────────────────────────────────
 
-// Cookies de sesión soportadas. Cada una se guarda en su propia entrada
-// cifrada del Keychain. Solo son etiquetas/nombres de cookie, NO el secreto.
-// Se envían al servidor las que estén presentes; con una basta para autenticar.
-const SESSION_COOKIES = [
-  { cookie: "sessionKey", keychainId: "claude_session_key" },
-  { cookie: "sessionKeyV3", keychainId: "claude_session_key_v3" },
-];
+// Endpoint real de uso (el que alimenta el panel de Claude Code / settings).
+const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
+// Cabecera beta requerida por el endpoint OAuth de uso.
+const OAUTH_BETA = "oauth-2025-04-20";
 
-// Endpoint de uso de Claude. Ajusta si tu organización usa otro host.
-// La respuesta se procesa de forma defensiva; si falla, se usan datos de
-// muestra para que el widget siempre renderice sin exponer nada.
-const USAGE_URL = "https://claude.ai/api/organizations/usage";
+// Renovación de token OAuth. El client_id es el cliente público de Claude
+// Code (identificador público de OAuth, NO un secreto).
+const TOKEN_URL = "https://console.anthropic.com/v1/oauth/token";
+const OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+
+// Entradas del Keychain donde se guardan los secretos, cifrados. Solo son
+// etiquetas: el valor real (token) nunca aparece en el código.
+const KC = {
+  access: "claude_oauth_access",   // token de acceso (Bearer)
+  refresh: "claude_oauth_refresh", // refresh token (renueva el acceso)
+  expires: "claude_oauth_expires", // caducidad del acceso en ms epoch
+};
 
 // Paleta que imita la interfaz de escritorio (tema oscuro).
 const COLORS = {
@@ -57,12 +70,11 @@ const COLORS = {
 await main();
 
 async function main() {
-  // BLOQUE DE VALIDACIÓN INICIAL — comprueba las llaves antes de cualquier red.
-  // Basta con que exista AL MENOS una de las cookies soportadas.
-  const hasKey = SESSION_COOKIES.some((c) => Keychain.contains(c.keychainId));
+  // BLOQUE DE VALIDACIÓN INICIAL — comprueba el token antes de cualquier red.
+  const hasKey = Keychain.contains(KC.access);
 
   if (!config.runsInWidget) {
-    // Modo app: permite configurar / actualizar / borrar las llaves de forma segura.
+    // Modo app: permite configurar / actualizar / borrar el token de forma segura.
     await runInteractiveSetup(hasKey);
     return;
   }
@@ -86,43 +98,36 @@ async function main() {
 // ─── Configuración interactiva (solo dentro de la app) ───────────────────────
 
 async function runInteractiveSetup(hasKey) {
-  // Resumen de qué cookies están guardadas actualmente.
-  const stored = SESSION_COOKIES.filter((c) => Keychain.contains(c.keychainId));
-  const summary = stored.length
-    ? "Guardadas: " + stored.map((c) => c.cookie).join(", ") + "."
-    : "No hay ninguna cookie guardada.";
+  const hasRefresh = Keychain.contains(KC.refresh);
+  const summary = hasKey
+    ? "Token guardado" + (hasRefresh ? " (con auto-renovación)." : " (sin refresh; caduca en ~8 h).")
+    : "No hay token guardado.";
 
   const menu = new Alert();
   menu.title = "Claude Usage · Configuración";
   menu.message = hasKey
-    ? summary + "\nEnvía las que existan; con una basta para autenticar."
-    : "No hay cookies guardadas. Añade al menos una para activar el widget.";
+    ? summary
+    : "No hay token. Pega tus credenciales OAuth para activar el widget.";
 
-  // Una acción por cada cookie soportada (guardar / actualizar).
-  for (const c of SESSION_COOKIES) {
-    const verb = Keychain.contains(c.keychainId) ? "Actualizar" : "Guardar";
-    menu.addAction(`${verb} ${c.cookie}`);
-  }
-  if (hasKey) menu.addDestructiveAction("Borrar todas las cookies");
+  menu.addAction(hasKey ? "Actualizar credenciales OAuth" : "Guardar credenciales OAuth");
+  if (hasKey) menu.addDestructiveAction("Borrar credenciales del llavero");
   menu.addAction("Ver vista previa del widget");
   menu.addCancelAction("Cerrar");
 
   const choice = await menu.presentSheet();
   if (choice < 0) return; // cancelado
 
-  const n = SESSION_COOKIES.length;
-  const idxDelete = hasKey ? n : -1;
-  const idxPreview = hasKey ? n + 1 : n;
+  const idxSave = 0;
+  const idxDelete = hasKey ? 1 : -1;
+  const idxPreview = hasKey ? 2 : 1;
 
-  if (choice < n) {
-    await promptAndStoreKey(SESSION_COOKIES[choice]);
+  if (choice === idxSave) {
+    await promptAndStoreCredentials();
   } else if (choice === idxDelete) {
-    for (const c of SESSION_COOKIES) Keychain.remove(c.keychainId);
-    const done = new Alert();
-    done.title = "Listo";
-    done.message = "Se eliminaron todas las cookies del llavero.";
-    done.addAction("OK");
-    await done.present();
+    Keychain.remove(KC.access);
+    Keychain.remove(KC.refresh);
+    Keychain.remove(KC.expires);
+    await note("Listo", "Se eliminaron las credenciales del llavero.");
   } else if (choice === idxPreview) {
     const data = await fetchUsage();
     const widget = buildWidget(data);
@@ -130,69 +135,119 @@ async function runInteractiveSetup(hasKey) {
   }
 }
 
-async function promptAndStoreKey(target) {
+/**
+ * Pide y guarda las credenciales OAuth de forma segura.
+ * Acepta:
+ *   - El JSON de credenciales de Claude Code
+ *     ({"claudeAiOauth":{"accessToken","refreshToken","expiresAt",...}}),
+ *   - o solo el token de acceso (sk-ant-oat01-...), que caduca en ~8 h.
+ * Todo se introduce con un campo seguro (oculto) y se cifra en el Keychain.
+ */
+async function promptAndStoreCredentials() {
   const a = new Alert();
-  a.title = `Guardar ${target.cookie}`;
+  a.title = "Guardar credenciales OAuth";
   a.message =
-    `Pega el valor de la cookie '${target.cookie}'. Se almacena cifrada en ` +
-    "el llavero del dispositivo y no se escribe en texto plano.";
+    "Pega el JSON de credenciales de Claude Code (recomendado, permite " +
+    "auto-renovación) o solo el token de acceso 'sk-ant-oat01-...'. Se " +
+    "almacena cifrado en el llavero; nunca en texto plano.";
   // addSecureTextField oculta el contenido mientras se escribe.
-  a.addSecureTextField("valor de la cookie…", "");
+  a.addSecureTextField("{\"claudeAiOauth\":{...}}  o  sk-ant-oat01-…", "");
   a.addAction("Guardar");
   a.addCancelAction("Cancelar");
 
   const res = await a.present();
   if (res === -1) return; // cancelado
 
-  const value = a.textFieldValue(0).trim();
-  if (!value) {
-    const err = new Alert();
-    err.title = "Valor vacío";
-    err.message = "No se guardó nada porque el campo estaba vacío.";
-    err.addAction("OK");
-    await err.present();
+  const raw = a.textFieldValue(0).trim();
+  if (!raw) {
+    await note("Valor vacío", "No se guardó nada porque el campo estaba vacío.");
     return;
   }
 
-  Keychain.set(target.keychainId, value);
+  const creds = parseCredentialsInput(raw);
+  if (!creds || !creds.access) {
+    await note(
+      "Formato no reconocido",
+      "Esperaba un token 'sk-ant-oat01-...' o el JSON con accessToken/refreshToken."
+    );
+    return;
+  }
 
-  const ok = new Alert();
-  ok.title = "Guardada de forma segura";
-  ok.message = `La cookie '${target.cookie}' quedó cifrada en el llavero. ` +
-    "Puedes guardar también la otra o añadir ya el widget mediano.";
-  ok.addAction("OK");
-  await ok.present();
+  Keychain.set(KC.access, creds.access);
+  if (creds.refresh) Keychain.set(KC.refresh, creds.refresh);
+  else Keychain.remove(KC.refresh);
+  Keychain.set(KC.expires, String(creds.expires || 0));
+
+  await note(
+    "Guardadas de forma segura",
+    creds.refresh
+      ? "Token y refresh cifrados en el llavero. El acceso se renueva solo."
+      : "Token cifrado en el llavero. Sin refresh: recuérdalo, caduca en ~8 h."
+  );
+}
+
+// Interpreta la entrada del usuario (JSON de credenciales o token suelto).
+function parseCredentialsInput(raw) {
+  // Caso 1: token de acceso pegado directamente.
+  if (raw.startsWith("sk-ant-oat")) {
+    return { access: raw, refresh: null, expires: 0 };
+  }
+  // Caso 2: JSON. Admite el envoltorio claudeAiOauth o el objeto plano.
+  try {
+    const obj = JSON.parse(raw);
+    const o = obj.claudeAiOauth || obj;
+    const access = o.accessToken || o.access_token || o.access || null;
+    const refresh = o.refreshToken || o.refresh_token || o.refresh || null;
+    let expires = o.expiresAt || o.expires_at || o.expires || 0;
+    if (typeof expires === "number" && expires < 1e12) expires *= 1000; // seg -> ms
+    return access ? { access, refresh, expires: Number(expires) || 0 } : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function note(title, message) {
+  const a = new Alert();
+  a.title = title;
+  a.message = message;
+  a.addAction("OK");
+  await a.present();
 }
 
 // ─── Obtención de datos ──────────────────────────────────────────────────────
 
 /**
- * Recupera el uso desde el endpoint usando la sessionKey del llavero.
- * - Nunca registra la llave ni la cabecera Cookie completa.
+ * Recupera el uso desde el endpoint OAuth real usando el token del llavero.
+ * - Renueva el token de acceso con el refresh token si está caducado.
+ * - Nunca registra el token ni la cabecera Authorization.
  * - Si algo falla, devuelve datos de muestra para que el widget renderice.
  * @returns {Promise<{stale:boolean, session:object, weekly:object}>}
  */
 async function fetchUsage() {
-  // Recuperación segura desde el llavero (nunca hardcodeada).
-  // Se arma el header Cookie con TODAS las cookies presentes; el servidor
-  // usa la que valga. Con una sola es suficiente para autenticar.
-  const cookieHeader = SESSION_COOKIES
-    .filter((c) => Keychain.contains(c.keychainId))
-    .map((c) => `${c.cookie}=${Keychain.get(c.keychainId)}`)
-    .join("; ");
-
   try {
+    const access = await ensureFreshToken();
+    if (!access) {
+      console.log("Claude Usage: sin token de acceso válido, usando muestra.");
+      return { stale: true, ...sampleData() };
+    }
+
     const req = new Request(USAGE_URL);
     req.method = "GET";
     req.headers = {
-      // Las cookies viajan en la cabecera pero jamás se imprimen en consola.
-      "Cookie": cookieHeader,
+      // El token viaja en la cabecera pero jamás se imprime en consola.
+      "Authorization": `Bearer ${access}`,
+      "anthropic-beta": OAUTH_BETA,
       "Accept": "application/json",
-      "Content-Type": "application/json",
     };
     req.timeoutInterval = 15;
 
     const json = await req.loadJSON();
+    const status = req.response ? req.response.statusCode : 200;
+    if (status === 401) {
+      console.log("Claude Usage: token no autorizado (401). Reconfigura el token.");
+      return { stale: true, ...sampleData() };
+    }
+
     const parsed = parseUsage(json);
     if (parsed) {
       console.log("Claude Usage: datos recuperados correctamente.");
@@ -200,7 +255,7 @@ async function fetchUsage() {
     }
     console.log("Claude Usage: respuesta sin campos esperados, usando muestra.");
   } catch (e) {
-    // Registramos solo el mensaje de error, nunca la llave ni las cabeceras.
+    // Registramos solo el mensaje de error, nunca el token ni las cabeceras.
     console.log("Claude Usage: fallo de red/parseo -> " + describeError(e));
   }
 
@@ -208,24 +263,68 @@ async function fetchUsage() {
 }
 
 /**
- * Normaliza la respuesta del API a la forma que consume el widget.
- * Es tolerante a distintos nombres de campo; devuelve null si no reconoce nada.
+ * Devuelve un token de acceso válido, renovándolo si es necesario.
+ * Si no hay refresh token, devuelve el de acceso tal cual (puede estar caduco).
+ * No registra ningún token.
+ */
+async function ensureFreshToken() {
+  const access = Keychain.contains(KC.access) ? Keychain.get(KC.access) : null;
+  const refresh = Keychain.contains(KC.refresh) ? Keychain.get(KC.refresh) : null;
+  const expires = Keychain.contains(KC.expires) ? Number(Keychain.get(KC.expires)) : 0;
+
+  // Margen de 60 s para no usar un token a punto de caducar.
+  const stillValid = expires && Date.now() < expires - 60000;
+  if (access && (stillValid || !refresh)) return access;
+  if (!refresh) return access;
+
+  try {
+    const req = new Request(TOKEN_URL);
+    req.method = "POST";
+    req.headers = { "Content-Type": "application/json", "Accept": "application/json" };
+    req.body = JSON.stringify({
+      grant_type: "refresh_token",
+      refresh_token: refresh,
+      client_id: OAUTH_CLIENT_ID,
+    });
+    req.timeoutInterval = 15;
+
+    const json = await req.loadJSON();
+    if (json && json.access_token) {
+      Keychain.set(KC.access, json.access_token);
+      if (json.refresh_token) Keychain.set(KC.refresh, json.refresh_token);
+      const ttl = Number(json.expires_in) || 0;
+      Keychain.set(KC.expires, String(Date.now() + ttl * 1000));
+      console.log("Claude Usage: token renovado correctamente.");
+      return json.access_token;
+    }
+    console.log("Claude Usage: la renovación no devolvió access_token.");
+  } catch (e) {
+    console.log("Claude Usage: fallo al renovar token -> " + describeError(e));
+  }
+  return access; // último recurso: probamos con el que teníamos
+}
+
+/**
+ * Normaliza la respuesta del endpoint OAuth de uso a la forma del widget.
+ * Esquema real: { five_hour:{utilization,resets_at}, seven_day:{...}, ... }.
+ * Es tolerante a nombres alternativos; devuelve null si no reconoce nada.
  */
 function parseUsage(json) {
   if (!json || typeof json !== "object") return null;
 
-  const s = json.current_session || json.session || json.five_hour || null;
-  const w = json.weekly_limit || json.weekly || json.seven_day || null;
+  const s = json.five_hour || json.current_session || json.session || null;
+  const w = json.seven_day || json.weekly_limit || json.weekly || null;
   if (!s && !w) return null;
 
   const now = Date.now();
 
   const build = (obj, windowMs) => {
     if (!obj) return null;
-    const used = clampPct(pickNumber(obj, ["used_pct", "utilization", "percent", "usage"]));
+    // utilization ya viene en 0..100; se lee tal cual (sin heurística de fracción).
+    const rawUsed = firstNumber(obj, ["utilization", "used_pct", "percent", "usage"]);
+    const used = rawUsed == null ? null : clampPct(rawUsed);
     const resetAtMs = pickDate(obj, ["resets_at", "reset_at", "resetsAt", "expires_at"]);
-    let resetInMs = pickNumber(obj, ["resets_in_ms", "reset_in_ms"]);
-    if (resetInMs == null && resetAtMs != null) resetInMs = resetAtMs - now;
+    let resetInMs = resetAtMs != null ? resetAtMs - now : null;
     // El anillo representa la fracción del ciclo transcurrida.
     let elapsed = null;
     if (resetInMs != null && windowMs) {
@@ -278,7 +377,7 @@ function buildMissingKeyWidget() {
   msg.textColor = COLORS.ring2;
   w.addSpacer(4);
   const hint = w.addText(
-    "Abre este script en la app Scriptable y guarda tu sessionKey o sessionKeyV3 para activar el widget."
+    "Abre este script en la app Scriptable y guarda tus credenciales OAuth para activar el widget."
   );
   hint.font = Font.systemFont(11);
   hint.textColor = COLORS.subtle;
@@ -479,14 +578,12 @@ function clampPct(n) {
   return Math.max(0, Math.min(100, n));
 }
 
-function pickNumber(obj, keys) {
+// Devuelve el primer valor numérico presente entre las claves dadas, tal cual.
+function firstNumber(obj, keys) {
   for (const k of keys) {
     const v = obj[k];
-    if (typeof v === "number") return v <= 1 ? v * 100 : v; // admite 0..1 o 0..100
-    if (typeof v === "string" && v.trim() !== "" && !isNaN(Number(v))) {
-      const n = Number(v);
-      return n <= 1 ? n * 100 : n;
-    }
+    if (typeof v === "number" && !isNaN(v)) return v;
+    if (typeof v === "string" && v.trim() !== "" && !isNaN(Number(v))) return Number(v);
   }
   return null;
 }
