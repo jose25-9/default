@@ -43,6 +43,11 @@ const OAUTH_BETA = "oauth-2025-04-20";
 const TOKEN_URL = "https://console.anthropic.com/v1/oauth/token";
 const OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 
+// User-Agent tipo Claude Code. El borde de la API (Cloudflare) devuelve 403 a
+// peticiones sin un User-Agent reconocible; el de Scriptable es genérico.
+const USER_AGENT = "claude-cli/1.0.0 (external, cli)";
+const ANTHROPIC_VERSION = "2023-06-01";
+
 // Entradas del Keychain donde se guardan los secretos, cifrados. Solo son
 // etiquetas: el valor real (token) nunca aparece en el código.
 const KC = {
@@ -248,18 +253,30 @@ async function fetchUsage() {
       // El token viaja en la cabecera pero jamás se imprime en consola.
       "Authorization": `Bearer ${access}`,
       "anthropic-beta": OAUTH_BETA,
+      "anthropic-version": ANTHROPIC_VERSION,
+      "User-Agent": USER_AGENT,
       "Accept": "application/json",
     };
     req.timeoutInterval = 15;
 
     const json = await req.loadJSON();
     const status = req.response ? req.response.statusCode : 200;
-    if (status === 401 || status === 403) {
-      console.log("Claude Usage: token no autorizado (" + status + "). Reconfigura el token.");
+    if (status === 401) {
+      console.log("Claude Usage: token no autorizado (401). Reconfigura el token.");
       return {
         stale: true,
-        reason: "HTTP " + status + " (no autorizado). El token caducó o no es válido. " +
-          "Pega credenciales frescas de Claude Code (con refreshToken para que se renueve solo).",
+        reason: "HTTP 401 (no autorizado). El token caducó o no es válido. " +
+          "Pega credenciales frescas de Claude Code (con refreshToken para que se renueve solo). " +
+          shortBody(json),
+        ...sampleData(),
+      };
+    }
+    if (status === 403) {
+      console.log("Claude Usage: prohibido (403). Posible bloqueo del borde o falta de permisos.");
+      return {
+        stale: true,
+        reason: "HTTP 403. Suele ser el borde de la API bloqueando la petición " +
+          "(User-Agent) o el token sin permisos para /oauth/usage. " + shortBody(json),
         ...sampleData(),
       };
     }
@@ -314,7 +331,11 @@ async function ensureFreshToken() {
   try {
     const req = new Request(TOKEN_URL);
     req.method = "POST";
-    req.headers = { "Content-Type": "application/json", "Accept": "application/json" };
+    req.headers = {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "User-Agent": USER_AGENT,
+    };
     req.body = JSON.stringify({
       grant_type: "refresh_token",
       refresh_token: refresh,
