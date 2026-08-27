@@ -136,6 +136,11 @@ async function runInteractiveSetup(hasKey) {
     await note("Listo", "Se eliminaron las credenciales del llavero.");
   } else if (choice === idxPreview) {
     const data = await fetchUsage();
+    // En la app mostramos el diagnóstico para saber por qué, si falla, cae a
+    // datos de muestra (código HTTP, error de red o campos inesperados).
+    if (data.stale && data.reason) {
+      await note("Diagnóstico (no se ven datos reales)", data.reason);
+    }
     const widget = buildWidget(data);
     await widget.presentMedium();
   }
@@ -234,7 +239,7 @@ async function fetchUsage() {
     const access = await ensureFreshToken();
     if (!access) {
       console.log("Claude Usage: sin token de acceso válido, usando muestra.");
-      return { stale: true, ...sampleData() };
+      return { stale: true, reason: "No hay token de acceso en el llavero.", ...sampleData() };
     }
 
     const req = new Request(USAGE_URL);
@@ -249,9 +254,22 @@ async function fetchUsage() {
 
     const json = await req.loadJSON();
     const status = req.response ? req.response.statusCode : 200;
-    if (status === 401) {
-      console.log("Claude Usage: token no autorizado (401). Reconfigura el token.");
-      return { stale: true, ...sampleData() };
+    if (status === 401 || status === 403) {
+      console.log("Claude Usage: token no autorizado (" + status + "). Reconfigura el token.");
+      return {
+        stale: true,
+        reason: "HTTP " + status + " (no autorizado). El token caducó o no es válido. " +
+          "Pega credenciales frescas de Claude Code (con refreshToken para que se renueve solo).",
+        ...sampleData(),
+      };
+    }
+    if (status < 200 || status >= 300) {
+      console.log("Claude Usage: HTTP " + status + " inesperado, usando muestra.");
+      return {
+        stale: true,
+        reason: "HTTP " + status + " del endpoint de uso. " + shortBody(json),
+        ...sampleData(),
+      };
     }
 
     const parsed = parseUsage(json);
@@ -260,12 +278,22 @@ async function fetchUsage() {
       return { stale: false, ...parsed };
     }
     console.log("Claude Usage: respuesta sin campos esperados, usando muestra.");
+    return {
+      stale: true,
+      reason: "HTTP " + status + " OK, pero la respuesta no trae los campos " +
+        "esperados (five_hour / seven_day). Claves recibidas: " + topKeys(json) + ".",
+      ...sampleData(),
+    };
   } catch (e) {
     // Registramos solo el mensaje de error, nunca el token ni las cabeceras.
     console.log("Claude Usage: fallo de red/parseo -> " + describeError(e));
+    return {
+      stale: true,
+      reason: "Fallo de red o de parseo: " + describeError(e) +
+        ". ¿Bloqueo de red o el endpoint devolvió algo que no es JSON?",
+      ...sampleData(),
+    };
   }
-
-  return { stale: true, ...sampleData() };
 }
 
 /**
@@ -677,6 +705,22 @@ function nowLabel() {
   df.useNoDateStyle();
   df.useShortTimeStyle();
   return df.string(new Date());
+}
+
+// Lista las claves de nivel superior de la respuesta (nombres, no valores).
+function topKeys(json) {
+  if (!json || typeof json !== "object") return "(no es objeto)";
+  const keys = Object.keys(json);
+  return keys.length ? keys.slice(0, 12).join(", ") : "(objeto vacío)";
+}
+
+// Extrae un mensaje/error corto del cuerpo para diagnóstico (sin datos sensibles).
+function shortBody(json) {
+  if (!json || typeof json !== "object") return "";
+  const msg = (json.error && (json.error.message || json.error.type)) ||
+    json.message || json.detail || json.type || "";
+  const s = String(msg || "");
+  return s ? "(" + (s.length > 100 ? s.slice(0, 100) + "…" : s) + ")" : "";
 }
 
 // Devuelve una descripción de error segura (sin exponer datos sensibles).
