@@ -255,6 +255,8 @@ async function fetchUsage() {
       "anthropic-beta": OAUTH_BETA,
       "anthropic-version": ANTHROPIC_VERSION,
       "User-Agent": USER_AGENT,
+      // Claude Code se identifica como app "cli"; el endpoint lo exige.
+      "x-app": "cli",
       "Accept": "application/json",
     };
     req.timeoutInterval = 15;
