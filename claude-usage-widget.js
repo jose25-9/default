@@ -25,8 +25,13 @@
 
 // ─── Configuración general ──────────────────────────────────────────────────
 
-// Nombre de la entrada en el Keychain. Solo es una etiqueta, NO el secreto.
-const KEYCHAIN_ID = "claude_session_key";
+// Cookies de sesión soportadas. Cada una se guarda en su propia entrada
+// cifrada del Keychain. Solo son etiquetas/nombres de cookie, NO el secreto.
+// Se envían al servidor las que estén presentes; con una basta para autenticar.
+const SESSION_COOKIES = [
+  { cookie: "sessionKey", keychainId: "claude_session_key" },
+  { cookie: "sessionKeyV3", keychainId: "claude_session_key_v3" },
+];
 
 // Endpoint de uso de Claude. Ajusta si tu organización usa otro host.
 // La respuesta se procesa de forma defensiva; si falla, se usan datos de
@@ -52,11 +57,12 @@ const COLORS = {
 await main();
 
 async function main() {
-  // BLOQUE DE VALIDACIÓN INICIAL — comprueba la llave antes de cualquier red.
-  const hasKey = Keychain.contains(KEYCHAIN_ID);
+  // BLOQUE DE VALIDACIÓN INICIAL — comprueba las llaves antes de cualquier red.
+  // Basta con que exista AL MENOS una de las cookies soportadas.
+  const hasKey = SESSION_COOKIES.some((c) => Keychain.contains(c.keychainId));
 
   if (!config.runsInWidget) {
-    // Modo app: permite configurar / actualizar / borrar la llave de forma segura.
+    // Modo app: permite configurar / actualizar / borrar las llaves de forma segura.
     await runInteractiveSetup(hasKey);
     return;
   }
@@ -80,31 +86,41 @@ async function main() {
 // ─── Configuración interactiva (solo dentro de la app) ───────────────────────
 
 async function runInteractiveSetup(hasKey) {
+  // Resumen de qué cookies están guardadas actualmente.
+  const stored = SESSION_COOKIES.filter((c) => Keychain.contains(c.keychainId));
+  const summary = stored.length
+    ? "Guardadas: " + stored.map((c) => c.cookie).join(", ") + "."
+    : "No hay ninguna cookie guardada.";
+
   const menu = new Alert();
   menu.title = "Claude Usage · Configuración";
   menu.message = hasKey
-    ? "Ya hay una sessionKey guardada de forma cifrada en el llavero."
-    : "No hay sessionKey guardada. Añádela para activar el widget.";
+    ? summary + "\nEnvía las que existan; con una basta para autenticar."
+    : "No hay cookies guardadas. Añade al menos una para activar el widget.";
 
-  menu.addAction(hasKey ? "Actualizar sessionKey" : "Guardar sessionKey");
-  if (hasKey) menu.addDestructiveAction("Borrar sessionKey del llavero");
+  // Una acción por cada cookie soportada (guardar / actualizar).
+  for (const c of SESSION_COOKIES) {
+    const verb = Keychain.contains(c.keychainId) ? "Actualizar" : "Guardar";
+    menu.addAction(`${verb} ${c.cookie}`);
+  }
+  if (hasKey) menu.addDestructiveAction("Borrar todas las cookies");
   menu.addAction("Ver vista previa del widget");
   menu.addCancelAction("Cerrar");
 
   const choice = await menu.presentSheet();
+  if (choice < 0) return; // cancelado
 
-  // Índices dependen de si existe la llave (por la acción destructiva).
-  const idxSave = 0;
-  const idxDelete = hasKey ? 1 : -1;
-  const idxPreview = hasKey ? 2 : 1;
+  const n = SESSION_COOKIES.length;
+  const idxDelete = hasKey ? n : -1;
+  const idxPreview = hasKey ? n + 1 : n;
 
-  if (choice === idxSave) {
-    await promptAndStoreKey();
+  if (choice < n) {
+    await promptAndStoreKey(SESSION_COOKIES[choice]);
   } else if (choice === idxDelete) {
-    Keychain.remove(KEYCHAIN_ID);
+    for (const c of SESSION_COOKIES) Keychain.remove(c.keychainId);
     const done = new Alert();
     done.title = "Listo";
-    done.message = "La sessionKey fue eliminada del llavero.";
+    done.message = "Se eliminaron todas las cookies del llavero.";
     done.addAction("OK");
     await done.present();
   } else if (choice === idxPreview) {
@@ -114,14 +130,14 @@ async function runInteractiveSetup(hasKey) {
   }
 }
 
-async function promptAndStoreKey() {
+async function promptAndStoreKey(target) {
   const a = new Alert();
-  a.title = "Guardar sessionKey";
+  a.title = `Guardar ${target.cookie}`;
   a.message =
-    "Pega tu cookie de sesión (sessionKey). Se almacena cifrada en el " +
-    "llavero del dispositivo y no se escribe en texto plano.";
+    `Pega el valor de la cookie '${target.cookie}'. Se almacena cifrada en ` +
+    "el llavero del dispositivo y no se escribe en texto plano.";
   // addSecureTextField oculta el contenido mientras se escribe.
-  a.addSecureTextField("sk-ant-sid...", "");
+  a.addSecureTextField("valor de la cookie…", "");
   a.addAction("Guardar");
   a.addCancelAction("Cancelar");
 
@@ -138,12 +154,12 @@ async function promptAndStoreKey() {
     return;
   }
 
-  Keychain.set(KEYCHAIN_ID, value);
+  Keychain.set(target.keychainId, value);
 
   const ok = new Alert();
   ok.title = "Guardada de forma segura";
-  ok.message = "La sessionKey quedó cifrada en el llavero. Ya puedes añadir " +
-    "el widget mediano a tu pantalla de inicio.";
+  ok.message = `La cookie '${target.cookie}' quedó cifrada en el llavero. ` +
+    "Puedes guardar también la otra o añadir ya el widget mediano.";
   ok.addAction("OK");
   await ok.present();
 }
@@ -158,14 +174,19 @@ async function promptAndStoreKey() {
  */
 async function fetchUsage() {
   // Recuperación segura desde el llavero (nunca hardcodeada).
-  const sessionKey = Keychain.get(KEYCHAIN_ID);
+  // Se arma el header Cookie con TODAS las cookies presentes; el servidor
+  // usa la que valga. Con una sola es suficiente para autenticar.
+  const cookieHeader = SESSION_COOKIES
+    .filter((c) => Keychain.contains(c.keychainId))
+    .map((c) => `${c.cookie}=${Keychain.get(c.keychainId)}`)
+    .join("; ");
 
   try {
     const req = new Request(USAGE_URL);
     req.method = "GET";
     req.headers = {
-      // La cookie viaja en la cabecera pero jamás se imprime en consola.
-      "Cookie": `sessionKey=${sessionKey}`,
+      // Las cookies viajan en la cabecera pero jamás se imprimen en consola.
+      "Cookie": cookieHeader,
       "Accept": "application/json",
       "Content-Type": "application/json",
     };
@@ -257,7 +278,7 @@ function buildMissingKeyWidget() {
   msg.textColor = COLORS.ring2;
   w.addSpacer(4);
   const hint = w.addText(
-    "Abre este script en la app Scriptable y guarda tu sessionKey para activar el widget."
+    "Abre este script en la app Scriptable y guarda tu sessionKey o sessionKeyV3 para activar el widget."
   );
   hint.font = Font.systemFont(11);
   hint.textColor = COLORS.subtle;
