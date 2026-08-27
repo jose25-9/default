@@ -51,6 +51,12 @@ const KC = {
   expires: "claude_oauth_expires", // caducidad del acceso en ms epoch
 };
 
+// Borrado seguro: Keychain.remove lanza si la clave no existe, así que
+// comprobamos antes. (Lo mismo aplica a Keychain.get en el resto del script.)
+function kcRemove(id) {
+  if (Keychain.contains(id)) Keychain.remove(id);
+}
+
 // Paleta que imita la interfaz de escritorio (tema oscuro).
 const COLORS = {
   bg1: new Color("#20222E"),
@@ -124,9 +130,9 @@ async function runInteractiveSetup(hasKey) {
   if (choice === idxSave) {
     await promptAndStoreCredentials();
   } else if (choice === idxDelete) {
-    Keychain.remove(KC.access);
-    Keychain.remove(KC.refresh);
-    Keychain.remove(KC.expires);
+    kcRemove(KC.access);
+    kcRemove(KC.refresh);
+    kcRemove(KC.expires);
     await note("Listo", "Se eliminaron las credenciales del llavero.");
   } else if (choice === idxPreview) {
     const data = await fetchUsage();
@@ -175,7 +181,7 @@ async function promptAndStoreCredentials() {
 
   Keychain.set(KC.access, creds.access);
   if (creds.refresh) Keychain.set(KC.refresh, creds.refresh);
-  else Keychain.remove(KC.refresh);
+  else kcRemove(KC.refresh);
   Keychain.set(KC.expires, String(creds.expires || 0));
 
   await note(
