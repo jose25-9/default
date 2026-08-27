@@ -6,7 +6,7 @@ compatibility_date = "2024-11-01"
 # access token, el refresh token y la caducidad. Sustituye el id por el que te
 # devuelva: `npx wrangler kv namespace create OAUTH`
 kv_namespaces = [
-  { binding = "OAUTH", id = "REEMPLAZA_CON_TU_KV_ID" }
+  { binding = "OAUTH", id = "76a771b0636b4b1191e273a9d5c1f54e" }
 ]
 
 # El secreto PROXY_TOKEN NO va aquí (no se guardan secretos en texto plano).
