@@ -354,7 +354,44 @@ function sampleData() {
 
 // ─── Construcción del widget ─────────────────────────────────────────────────
 
-function baseWidget() {
+// Ancho (pts) del widget MEDIANO según la familia de pantalla del iPhone.
+// Sirve para escalar el diseño y que se vea bien del SE al Pro Max.
+function mediumWidgetWidth() {
+  let longer = 852; // valor por defecto razonable (iPhone 14/15/16)
+  try {
+    const sz = Device.screenSize();
+    longer = Math.max(sz.width, sz.height);
+  } catch (e) { /* en preview puede no estar; usamos el valor por defecto */ }
+
+  if (longer >= 926) return 360; // Pro Max / Plus grandes
+  if (longer >= 896) return 360; // XS Max / 11 Pro Max / XR / 11
+  if (longer >= 844) return 338; // 12–16 estándar y Pro
+  if (longer >= 812) return 329; // X / XS / 11 Pro / mini
+  if (longer >= 736) return 321; // 8 Plus
+  return 292;                    // SE / 8 / pantallas estrechas
+}
+
+// Calcula tamaños de columnas y tipografías escalados al ancho disponible.
+// El diseño base suma 300 pt de contenido; se reescala proporcionalmente.
+function metrics() {
+  const padH = 12, padV = 12;
+  const avail = mediumWidgetWidth() - padH * 2;
+  const S = Math.max(0.82, Math.min(avail / 300, 1.18));
+
+  const m = {
+    padH, padV, scale: S,
+    colLabel: 68 * S,
+    barW: 56 * S, barH: Math.max(6, 8 * S), gap: 6 * S, pctW: 30 * S,
+    colElapsed: 38 * S, ringSize: 26 * S,
+    colIn: 56 * S, colAt: 46 * S,
+    fLabel: 11 * S, fPct: 13 * S, fVal: 12.5 * S, fSub: 12.5 * S, fHead: 8.5 * S,
+    rowGap: 12 * S,
+  };
+  m.colUsed = m.barW + m.gap + m.pctW;
+  return m;
+}
+
+function baseWidget(padV, padH) {
   const w = new ListWidget();
   const grad = new LinearGradient();
   grad.colors = [COLORS.bg1, COLORS.bg2];
@@ -362,7 +399,8 @@ function baseWidget() {
   grad.startPoint = new Point(0, 0);
   grad.endPoint = new Point(1, 1);
   w.backgroundGradient = grad;
-  w.setPadding(14, 16, 14, 16);
+  w.setPadding(padV == null ? 14 : padV, padH == null ? 16 : padH,
+               padV == null ? 14 : padV, padH == null ? 16 : padH);
   return w;
 }
 
@@ -386,87 +424,95 @@ function buildMissingKeyWidget() {
 }
 
 function buildWidget(data) {
-  const w = baseWidget();
+  const m = metrics();
+  const w = baseWidget(m.padV, m.padH);
 
-  // Fila de encabezados de columna.
+  // Fila de encabezados de columna (alineada con las columnas de datos).
   const header = w.addStack();
   header.layoutHorizontally();
   header.centerAlignContent();
-  addFixedText(header, "", 96);
-  addColTitle(header, "SESSION USED", 104, "left");
-  addColTitle(header, "ELAPSED", 52, "center");
-  addColTitle(header, "RESETS IN", 62, "left");
-  addColTitle(header, "RESETS AT", 60, "left");
+  addFixedStack(header, m.colLabel);
+  addColTitle(header, "SESSION USED", m.colUsed, "left", m.fHead);
+  addColTitle(header, "ELAPSED", m.colElapsed, "center", m.fHead);
+  addColTitle(header, "RESETS IN", m.colIn, "left", m.fHead);
+  addColTitle(header, "RESETS AT", m.colAt, "left", m.fHead);
+  header.addSpacer();
 
-  w.addSpacer(10);
-  addRow(w, "CURRENT SESSION", data.session, COLORS.session, COLORS.session);
-  w.addSpacer(12);
-  addRow(w, "WEEKLY LIMIT", data.weekly, COLORS.weekly, COLORS.ring2);
+  w.addSpacer(m.rowGap * 0.9);
+  addRow(w, m, "CURRENT SESSION", data.session, COLORS.session, COLORS.session);
+  w.addSpacer(m.rowGap);
+  addRow(w, m, "WEEKLY LIMIT", data.weekly, COLORS.weekly, COLORS.ring2);
   w.addSpacer();
 
   // Pie discreto: marca de actualización o aviso de datos de muestra.
   const foot = w.addText(
-    data.stale ? "· datos de muestra · revisa la sessionKey" : "· actualizado " + nowLabel()
+    data.stale ? "· datos de muestra · revisa el token" : "· actualizado " + nowLabel()
   );
-  foot.font = Font.systemFont(9);
+  foot.font = Font.systemFont(Math.max(8, 9 * m.scale));
   foot.textColor = data.stale ? COLORS.ring2 : COLORS.title;
   foot.centerAlignText();
 
   return w;
 }
 
-function addRow(w, label, d, barColor, ringColor) {
+function addRow(w, m, label, d, barColor, ringColor) {
   const row = w.addStack();
   row.layoutHorizontally();
   row.centerAlignContent();
 
   // Col 1 — etiqueta de la fila.
-  const lbl = addFixedStack(row, 96);
+  const lbl = addFixedStack(row, m.colLabel);
   const lt = lbl.addText(label);
-  lt.font = Font.semiboldSystemFont(11);
+  lt.font = Font.semiboldSystemFont(m.fLabel);
   lt.textColor = COLORS.label;
   lt.lineLimit = 1;
-  lt.minimumScaleFactor = 0.7;
+  lt.minimumScaleFactor = 0.6;
 
   // Col 2 — barra de progreso + porcentaje.
-  const barCol = addFixedStack(row, 104);
+  const barCol = addFixedStack(row, m.colUsed);
   barCol.centerAlignContent();
-  barCol.addImage(barImage(d.usedPct, barColor, 78, 8));
-  barCol.addSpacer(6);
-  const pct = barCol.addText(`${Math.round(d.usedPct)}%`);
-  pct.font = Font.boldSystemFont(13);
+  barCol.addImage(barImage(d.usedPct, barColor, m.barW, m.barH));
+  barCol.addSpacer(m.gap);
+  const pctBox = barCol.addStack();
+  pctBox.size = new Size(m.pctW, 0);
+  const pct = pctBox.addText(`${Math.round(d.usedPct)}%`);
+  pct.font = Font.boldSystemFont(m.fPct);
   pct.textColor = COLORS.value;
+  pct.lineLimit = 1;
+  pct.minimumScaleFactor = 0.6;
 
   // Col 3 — anillo de tiempo transcurrido.
-  const ringCol = addFixedStack(row, 52);
+  const ringCol = addFixedStack(row, m.colElapsed);
   ringCol.centerAlignContent();
-  const ring = ringCol.addImage(ringImage(d.elapsedPct, ringColor));
-  ring.imageSize = new Size(26, 26);
+  ringCol.addSpacer();
+  const ring = ringCol.addImage(ringImage(d.elapsedPct, ringColor, m.ringSize));
+  ring.imageSize = new Size(m.ringSize, m.ringSize);
+  ringCol.addSpacer();
 
   // Col 4 — tiempo hasta el reinicio.
-  const inCol = addFixedStack(row, 62);
+  const inCol = addFixedStack(row, m.colIn);
   const it = inCol.addText(d.resetIn);
-  it.font = Font.semiboldSystemFont(13);
+  it.font = Font.semiboldSystemFont(m.fVal);
   it.textColor = COLORS.value;
   it.lineLimit = 1;
-  it.minimumScaleFactor = 0.7;
+  it.minimumScaleFactor = 0.6;
 
   // Col 5 — hora de reinicio.
-  const atCol = addFixedStack(row, 60);
+  const atCol = addFixedStack(row, m.colAt);
   const at = atCol.addText(d.resetAt);
-  at.font = Font.systemFont(13);
+  at.font = Font.systemFont(m.fSub);
   at.textColor = COLORS.subtle;
   at.lineLimit = 1;
-  at.minimumScaleFactor = 0.7;
+  at.minimumScaleFactor = 0.6;
 }
 
 // ─── Helpers de dibujo ───────────────────────────────────────────────────────
 
 // Barra de progreso redondeada dibujada con DrawContext.
+// Renderiza al tamaño real en puntos; respectScreenScale da nitidez retina.
 function barImage(pct, color, width, height) {
-  const scale = 3;
-  const W = width * scale;
-  const H = height * scale;
+  const W = width;
+  const H = height;
   const r = H / 2;
   const p = clampPct(pct) / 100;
 
@@ -490,10 +536,10 @@ function barImage(pct, color, width, height) {
 }
 
 // Anillo de progreso (tiempo transcurrido) dibujado por segmentos.
-function ringImage(pct, color) {
-  const scale = 3;
-  const size = 26 * scale;
-  const lineWidth = 4 * scale;
+// Renderiza al tamaño real en puntos; respectScreenScale da nitidez retina.
+function ringImage(pct, color, ptSize) {
+  const size = ptSize || 26;
+  const lineWidth = Math.max(3, size * 0.15);
   const radius = (size - lineWidth) / 2;
   const cx = size / 2;
   const cy = size / 2;
@@ -553,21 +599,14 @@ function addFixedStack(parent, width) {
   return s;
 }
 
-function addFixedText(parent, text, width) {
+function addColTitle(parent, text, width, align, fontSize) {
   const s = addFixedStack(parent, width);
+  if (align === "center") s.addSpacer();
   const t = s.addText(text);
-  t.font = Font.systemFont(9);
-  return s;
-}
-
-function addColTitle(parent, text, width, align) {
-  const s = addFixedStack(parent, width);
-  if (align === "center") {
-    s.addSpacer();
-  }
-  const t = s.addText(text);
-  t.font = Font.mediumSystemFont(9);
+  t.font = Font.mediumSystemFont(fontSize || 9);
   t.textColor = COLORS.title;
+  t.lineLimit = 1;
+  t.minimumScaleFactor = 0.6;
   if (align === "center") s.addSpacer();
 }
 
