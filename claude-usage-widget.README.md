@@ -57,8 +57,11 @@ En la app, el menú del script ofrece **"Configurar proxy (Cloudflare)"** y
 
 Las credenciales las genera Claude Code al hacer login. Ubicación típica:
 
-- **macOS:** llavero → entrada **“Claude Code-credentials”** (JSON).
-- **Linux/Windows:** `~/.claude/.credentials.json`.
+- **Windows:** `C:\Users\TU_USUARIO\.claude\.credentials.json`
+  (equivale a `%USERPROFILE%\.claude\.credentials.json`).
+- **macOS:** llavero → entrada **“Claude Code-credentials”** (JSON), o el archivo
+  `~/.claude/.credentials.json` según la instalación.
+- **Linux:** `~/.claude/.credentials.json`.
 
 El JSON tiene esta forma (los tokens están recortados aquí):
 
