@@ -1,0 +1,13 @@
+name = "claude-usage-proxy"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# Namespace KV donde el Worker guarda (cifrado en reposo por Cloudflare) el
+# access token, el refresh token y la caducidad. Sustituye el id por el que te
+# devuelva: `npx wrangler kv namespace create OAUTH`
+kv_namespaces = [
+  { binding = "OAUTH", id = "REEMPLAZA_CON_TU_KV_ID" }
+]
+
+# El secreto PROXY_TOKEN NO va aquí (no se guardan secretos en texto plano).
+# Se define con:  npx wrangler secret put PROXY_TOKEN

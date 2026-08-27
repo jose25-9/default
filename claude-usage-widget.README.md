@@ -35,6 +35,24 @@ Respuesta (esquema real):
 > script guarda también el *refresh token* y renueva el acceso automáticamente.
 > El endpoint está **muy rate-limited**: no lo consultes en exceso.
 
+## Dos modos de funcionamiento
+
+El widget puede obtener los datos de dos formas:
+
+1. **Modo proxy (recomendado).** El widget llama a un **Cloudflare Worker** tuyo
+   que a su vez consulta a Anthropic. Es la opción robusta porque el endpoint de
+   Anthropic **bloquea con 403 "Request not allowed"** las peticiones directas
+   desde apps de terceros en el móvil. Además tus credenciales de Anthropic
+   viven en Cloudflare, no en el teléfono. Guía completa en
+   [`proxy/README.md`](./proxy/README.md).
+2. **Modo directo.** El widget llama a `api.anthropic.com` directamente con tu
+   token OAuth. Es más simple, pero puede devolver **403** según el dispositivo
+   y la protección del borde de la API. Si te funciona, perfecto; si no, usa el
+   proxy.
+
+En la app, el menú del script ofrece **"Configurar proxy (Cloudflare)"** y
+**"Guardar token OAuth directo"** para elegir el modo.
+
 ## Cómo obtener las credenciales OAuth
 
 Las credenciales las genera Claude Code al hacer login. Ubicación típica:

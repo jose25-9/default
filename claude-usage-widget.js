@@ -51,9 +51,11 @@ const ANTHROPIC_VERSION = "2023-06-01";
 // Entradas del Keychain donde se guardan los secretos, cifrados. Solo son
 // etiquetas: el valor real (token) nunca aparece en el código.
 const KC = {
-  access: "claude_oauth_access",   // token de acceso (Bearer)
+  access: "claude_oauth_access",   // token de acceso (Bearer) — modo directo
   refresh: "claude_oauth_refresh", // refresh token (renueva el acceso)
   expires: "claude_oauth_expires", // caducidad del acceso en ms epoch
+  proxyUrl: "claude_proxy_url",    // URL del Worker de Cloudflare — modo proxy
+  proxyToken: "claude_proxy_token",// token compartido con el proxy (PROXY_TOKEN)
 };
 
 // Borrado seguro: Keychain.remove lanza si la clave no existe, así que
@@ -81,12 +83,13 @@ const COLORS = {
 await main();
 
 async function main() {
-  // BLOQUE DE VALIDACIÓN INICIAL — comprueba el token antes de cualquier red.
-  const hasKey = Keychain.contains(KC.access);
+  // BLOQUE DE VALIDACIÓN INICIAL — comprueba la configuración antes de red.
+  // Hay configuración si existe un proxy o un token OAuth directo.
+  const hasKey = Keychain.contains(KC.proxyUrl) || Keychain.contains(KC.access);
 
   if (!config.runsInWidget) {
-    // Modo app: permite configurar / actualizar / borrar el token de forma segura.
-    await runInteractiveSetup(hasKey);
+    // Modo app: configurar / actualizar / borrar de forma segura.
+    await runInteractiveSetup();
     return;
   }
 
@@ -108,47 +111,104 @@ async function main() {
 
 // ─── Configuración interactiva (solo dentro de la app) ───────────────────────
 
-async function runInteractiveSetup(hasKey) {
+async function runInteractiveSetup() {
+  const hasProxy = Keychain.contains(KC.proxyUrl);
+  const hasDirect = Keychain.contains(KC.access);
   const hasRefresh = Keychain.contains(KC.refresh);
-  const summary = hasKey
-    ? "Token guardado" + (hasRefresh ? " (con auto-renovación)." : " (sin refresh; caduca en ~8 h).")
-    : "No hay token guardado.";
 
   const menu = new Alert();
   menu.title = "Claude Usage · Configuración";
-  menu.message = hasKey
-    ? summary
-    : "No hay token. Pega tus credenciales OAuth para activar el widget.";
+  menu.message = statusSummary(hasProxy, hasDirect, hasRefresh);
 
-  menu.addAction(hasKey ? "Actualizar credenciales OAuth" : "Guardar credenciales OAuth");
-  if (hasKey) menu.addDestructiveAction("Borrar credenciales del llavero");
-  menu.addAction("Ver vista previa del widget");
+  // Construimos las acciones con su handler para evitar errores de índice.
+  const actions = [];
+  actions.push(["Configurar proxy (Cloudflare) — recomendado", promptAndStoreProxy]);
+  actions.push([hasDirect ? "Actualizar token OAuth directo" : "Guardar token OAuth directo", promptAndStoreCredentials]);
+  if (hasProxy || hasDirect) actions.push(["Ver vista previa del widget", previewWidget]);
+  if (hasProxy || hasDirect) actions.push(["Borrar toda la configuración", deleteAllConfig]);
+
+  for (const [label] of actions) menu.addAction(label);
   menu.addCancelAction("Cerrar");
 
   const choice = await menu.presentSheet();
-  if (choice < 0) return; // cancelado
+  if (choice < 0 || choice >= actions.length) return; // cancelado
+  await actions[choice][1]();
+}
 
-  const idxSave = 0;
-  const idxDelete = hasKey ? 1 : -1;
-  const idxPreview = hasKey ? 2 : 1;
-
-  if (choice === idxSave) {
-    await promptAndStoreCredentials();
-  } else if (choice === idxDelete) {
-    kcRemove(KC.access);
-    kcRemove(KC.refresh);
-    kcRemove(KC.expires);
-    await note("Listo", "Se eliminaron las credenciales del llavero.");
-  } else if (choice === idxPreview) {
-    const data = await fetchUsage();
-    // En la app mostramos el diagnóstico para saber por qué, si falla, cae a
-    // datos de muestra (código HTTP, error de red o campos inesperados).
-    if (data.stale && data.reason) {
-      await note("Diagnóstico (no se ven datos reales)", data.reason);
-    }
-    const widget = buildWidget(data);
-    await widget.presentMedium();
+function statusSummary(hasProxy, hasDirect, hasRefresh) {
+  if (hasProxy) {
+    return "Modo proxy activo (recomendado). El widget pide los datos a tu " +
+      "Worker de Cloudflare; tus credenciales de Anthropic no están en el móvil.";
   }
+  if (hasDirect) {
+    return "Modo directo. Token guardado" +
+      (hasRefresh ? " con auto-renovación." : " (sin refresh; caduca en ~8 h).") +
+      " Nota: el endpoint puede bloquear peticiones directas del móvil (403).";
+  }
+  return "Sin configurar. Usa el proxy de Cloudflare (recomendado, evita el " +
+    "bloqueo 403) o, si prefieres, pega el token OAuth directo.";
+}
+
+// Vista previa con diagnóstico si cae a datos de muestra.
+async function previewWidget() {
+  const data = await fetchUsage();
+  if (data.stale && data.reason) {
+    await note("Diagnóstico (no se ven datos reales)", data.reason);
+  }
+  const widget = buildWidget(data);
+  await widget.presentMedium();
+}
+
+// Borra tanto el modo proxy como el modo directo.
+async function deleteAllConfig() {
+  kcRemove(KC.access);
+  kcRemove(KC.refresh);
+  kcRemove(KC.expires);
+  kcRemove(KC.proxyUrl);
+  kcRemove(KC.proxyToken);
+  await note("Listo", "Se eliminó toda la configuración del llavero.");
+}
+
+/**
+ * Guarda la URL del Worker y el token del proxy (PROXY_TOKEN), cifrados.
+ * En modo proxy el móvil NO guarda las credenciales de Anthropic: solo la
+ * URL de tu Worker y un token compartido con él.
+ */
+async function promptAndStoreProxy() {
+  const a = new Alert();
+  a.title = "Configurar proxy (Cloudflare)";
+  a.message =
+    "Pega la URL de tu Worker (p. ej. " +
+    "https://claude-usage-proxy.tucuenta.workers.dev) y el PROXY_TOKEN. Se " +
+    "guardan cifrados en el llavero. Deja el token vacío para conservar el " +
+    "actual.";
+  a.addTextField("https://…workers.dev", Keychain.contains(KC.proxyUrl) ? Keychain.get(KC.proxyUrl) : "");
+  a.addSecureTextField("PROXY_TOKEN", "");
+  a.addAction("Guardar");
+  a.addCancelAction("Cancelar");
+
+  const res = await a.present();
+  if (res === -1) return; // cancelado
+
+  const rawUrl = a.textFieldValue(0).trim().replace(/\/+$/, "");
+  const rawTok = a.textFieldValue(1).trim();
+  if (!/^https:\/\//i.test(rawUrl)) {
+    await note("URL no válida", "La URL del Worker debe empezar por https://");
+    return;
+  }
+  if (!rawTok && !Keychain.contains(KC.proxyToken)) {
+    await note("Falta el token", "Introduce el PROXY_TOKEN la primera vez.");
+    return;
+  }
+
+  Keychain.set(KC.proxyUrl, rawUrl);
+  if (rawTok) Keychain.set(KC.proxyToken, rawTok);
+
+  await note(
+    "Guardado de forma segura",
+    "Proxy configurado. Toca 'Ver vista previa del widget' para probar. " +
+      "Tus credenciales de Anthropic viven en Cloudflare, no en el móvil."
+  );
 }
 
 /**
@@ -240,6 +300,56 @@ async function note(title, message) {
  * @returns {Promise<{stale:boolean, session:object, weekly:object}>}
  */
 async function fetchUsage() {
+  // Modo proxy (recomendado): pide los datos a tu Worker de Cloudflare.
+  if (Keychain.contains(KC.proxyUrl)) return fetchViaProxy();
+  // Modo directo: llama al endpoint de Anthropic desde el móvil.
+  return fetchDirect();
+}
+
+/**
+ * Pide el uso a tu Worker de Cloudflare. El Worker guarda las credenciales de
+ * Anthropic y renueva el token; el móvil solo envía el token del proxy.
+ */
+async function fetchViaProxy() {
+  try {
+    const base = Keychain.get(KC.proxyUrl).replace(/\/+$/, "");
+    const token = Keychain.contains(KC.proxyToken) ? Keychain.get(KC.proxyToken) : "";
+
+    const req = new Request(base + "/usage");
+    req.method = "GET";
+    req.headers = {
+      // Token del proxy, no el de Anthropic. Nunca se imprime en consola.
+      "Authorization": `Bearer ${token}`,
+      "Accept": "application/json",
+    };
+    req.timeoutInterval = 15;
+
+    const json = await req.loadJSON();
+    const status = req.response ? req.response.statusCode : 200;
+    if (status === 401) {
+      return { stale: true, reason: "Proxy 401: el PROXY_TOKEN no coincide con el del Worker.", ...sampleData() };
+    }
+    if (status < 200 || status >= 300) {
+      return { stale: true, reason: "Proxy HTTP " + status + ". " + shortBody(json), ...sampleData() };
+    }
+    const parsed = parseUsage(json);
+    if (parsed) {
+      console.log("Claude Usage: datos recuperados vía proxy.");
+      return { stale: false, ...parsed };
+    }
+    return {
+      stale: true,
+      reason: "El proxy respondió sin los campos esperados. Claves: " + topKeys(json) + ".",
+      ...sampleData(),
+    };
+  } catch (e) {
+    console.log("Claude Usage: fallo hacia el proxy -> " + describeError(e));
+    return { stale: true, reason: "No se pudo contactar con el proxy: " + describeError(e), ...sampleData() };
+  }
+}
+
+/** Modo directo: llama al endpoint de Anthropic desde el dispositivo. */
+async function fetchDirect() {
   try {
     const access = await ensureFreshToken();
     if (!access) {
