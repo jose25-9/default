@@ -327,7 +327,15 @@ async function fetchViaProxy() {
     const json = await req.loadJSON();
     const status = req.response ? req.response.statusCode : 200;
     if (status === 401) {
-      return { stale: true, reason: "Proxy 401: el PROXY_TOKEN no coincide con el del Worker.", ...sampleData() };
+      return { stale: true, reason: "Proxy 401: el PROXY_TOKEN del widget no coincide con el del Worker. Reconfigura el proxy con el token correcto.", ...sampleData() };
+    }
+    if (status === 502 && json && json.error === "upstream_error") {
+      // El proxy pudo autenticarte, pero Anthropic devolvió error (token OAuth).
+      const up = json.upstream_status;
+      if (up === 401 || up === 403) {
+        return { stale: true, reason: "El token de Anthropic caducó y el Worker no pudo renovarlo (HTTP " + up + "). Vuelve a ejecutar /seed con credenciales frescas.", ...sampleData() };
+      }
+      return { stale: true, reason: "Anthropic devolvió HTTP " + up + " al Worker. " + shortBody(json.body), ...sampleData() };
     }
     if (status < 200 || status >= 300) {
       return { stale: true, reason: "Proxy HTTP " + status + ". " + shortBody(json), ...sampleData() };

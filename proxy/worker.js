@@ -124,11 +124,23 @@ async function handleUsage(env) {
   });
 
   const text = await resp.text();
-  // Reenviamos el cuerpo tal cual (JSON de Anthropic o su error) y el estado.
-  return new Response(text, {
-    status: resp.status,
-    headers: { "Content-Type": "application/json; charset=utf-8" },
-  });
+
+  // Éxito: reenviamos el JSON de Anthropic tal cual.
+  if (resp.status >= 200 && resp.status < 300) {
+    return new Response(text, {
+      status: resp.status,
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+    });
+  }
+
+  // Error de Anthropic (p. ej. 401 por token OAuth caducado). NO lo reenviamos
+  // como 401 tal cual, porque el 401 del proxy está reservado para "PROXY_TOKEN
+  // incorrecto". Lo envolvemos como 502 con el detalle, para que el widget lo
+  // distinga y muestre "re-seed" en vez de "token del proxy incorrecto".
+  return json(
+    { error: "upstream_error", upstream_status: resp.status, body: safeParse(text) },
+    502
+  );
 }
 
 /**
@@ -188,4 +200,14 @@ function json(obj, status) {
 function safeMessage(e) {
   const m = e && e.message ? String(e.message) : String(e);
   return m.length > 200 ? m.slice(0, 200) : m;
+}
+
+// Intenta parsear JSON; si no, devuelve el texto recortado.
+function safeParse(text) {
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    const s = String(text || "");
+    return s.length > 300 ? s.slice(0, 300) : s;
+  }
 }
