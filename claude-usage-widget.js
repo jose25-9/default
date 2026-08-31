@@ -548,24 +548,37 @@ function mediumWidgetWidth() {
   return 292;                    // SE / 8 / pantallas estrechas
 }
 
-// Calcula tamaños de columnas y tipografías escalados al ancho disponible.
-// El diseño base suma 300 pt de contenido; se reescala proporcionalmente.
+// Calcula tamaños de columnas y tipografías para llenar TODO el ancho.
+// Las columnas fijas (etiqueta, %, RESETS IN, RESETS AT) se escalan según el
+// dispositivo; la BARRA absorbe todo el espacio libre restante, de modo que el
+// contenido llega de borde a borde en cualquier iPhone.
 function metrics() {
-  const padH = 12, padV = 12;
+  const padH = 14, padV = 12;
   const avail = mediumWidgetWidth() - padH * 2;
-  const S = Math.max(0.82, Math.min(avail / 300, 1.18));
+  // Escala suave de fuentes y columnas fijas (base 320 pt).
+  const S = Math.max(0.85, Math.min(avail / 320, 1.12));
 
   // Tamaño único para todas las fuentes del cuerpo (etiqueta, %, RESETS IN,
   // RESETS AT). Solo los encabezados de columna (fHead) van más pequeños.
-  const fBody = 13 * S;
+  const fBody = 13.5 * S;
+
+  const colLabel = 72 * S;
+  const pctW = 38 * S;
+  const gap = 8 * S;
+  const colIn = 60 * S;
+  const colAt = 52 * S;
+
+  // La barra ocupa lo que sobra tras las columnas fijas: llena el ancho.
+  let barW = avail - colLabel - gap - pctW - colIn - colAt;
+  barW = Math.max(60 * S, barW);
 
   const m = {
     padH, padV, scale: S,
-    colLabel: 66 * S,
-    barW: 90 * S, barH: Math.max(10, 13 * S), gap: 7 * S, pctW: 34 * S,
-    colIn: 56 * S, colAt: 46 * S,
-    fLabel: fBody, fPct: fBody, fVal: fBody, fSub: fBody, fHead: 8.5 * S,
-    rowGap: 14 * S,
+    colLabel,
+    barW, barH: Math.max(11, 14 * S), gap, pctW,
+    colIn, colAt,
+    fLabel: fBody, fPct: fBody, fVal: fBody, fSub: fBody, fHead: 9 * S,
+    rowGap: 16 * S,
   };
   m.colUsed = m.barW + m.gap + m.pctW;
   return m;
