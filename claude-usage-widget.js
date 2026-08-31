@@ -555,14 +555,17 @@ function metrics() {
   const avail = mediumWidgetWidth() - padH * 2;
   const S = Math.max(0.82, Math.min(avail / 300, 1.18));
 
+  // Tamaño único para todas las fuentes del cuerpo (etiqueta, %, RESETS IN,
+  // RESETS AT). Solo los encabezados de columna (fHead) van más pequeños.
+  const fBody = 13 * S;
+
   const m = {
     padH, padV, scale: S,
-    colLabel: 68 * S,
-    barW: 56 * S, barH: Math.max(6, 8 * S), gap: 6 * S, pctW: 30 * S,
-    colElapsed: 38 * S, ringSize: 26 * S,
+    colLabel: 66 * S,
+    barW: 90 * S, barH: Math.max(10, 13 * S), gap: 7 * S, pctW: 34 * S,
     colIn: 56 * S, colAt: 46 * S,
-    fLabel: 11 * S, fPct: 13 * S, fVal: 12.5 * S, fSub: 12.5 * S, fHead: 8.5 * S,
-    rowGap: 12 * S,
+    fLabel: fBody, fPct: fBody, fVal: fBody, fSub: fBody, fHead: 8.5 * S,
+    rowGap: 14 * S,
   };
   m.colUsed = m.barW + m.gap + m.pctW;
   return m;
