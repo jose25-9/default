@@ -610,7 +610,6 @@ function buildWidget(data) {
   header.centerAlignContent();
   addFixedStack(header, m.colLabel);
   addColTitle(header, "SESSION USED", m.colUsed, "left", m.fHead);
-  addColTitle(header, "ELAPSED", m.colElapsed, "center", m.fHead);
   addColTitle(header, "RESETS IN", m.colIn, "left", m.fHead);
   addColTitle(header, "RESETS AT", m.colAt, "left", m.fHead);
   header.addSpacer();
@@ -658,15 +657,7 @@ function addRow(w, m, label, d, barColor, ringColor) {
   pct.lineLimit = 1;
   pct.minimumScaleFactor = 0.6;
 
-  // Col 3 — anillo de tiempo transcurrido.
-  const ringCol = addFixedStack(row, m.colElapsed);
-  ringCol.centerAlignContent();
-  ringCol.addSpacer();
-  const ring = ringCol.addImage(ringImage(d.elapsedPct, ringColor, m.ringSize));
-  ring.imageSize = new Size(m.ringSize, m.ringSize);
-  ringCol.addSpacer();
-
-  // Col 4 — tiempo hasta el reinicio.
+  // Col 3 — tiempo hasta el reinicio.
   const inCol = addFixedStack(row, m.colIn);
   const it = inCol.addText(d.resetIn);
   it.font = Font.semiboldSystemFont(m.fVal);
@@ -674,7 +665,7 @@ function addRow(w, m, label, d, barColor, ringColor) {
   it.lineLimit = 1;
   it.minimumScaleFactor = 0.6;
 
-  // Col 5 — hora de reinicio.
+  // Col 4 — hora de reinicio.
   const atCol = addFixedStack(row, m.colAt);
   const at = atCol.addText(d.resetAt);
   at.font = Font.systemFont(m.fSub);
