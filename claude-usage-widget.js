@@ -40,7 +40,9 @@ const OAUTH_BETA = "oauth-2025-04-20";
 
 // Renovación de token OAuth. El client_id es el cliente público de Claude
 // Code (identificador público de OAuth, NO un secreto).
-const TOKEN_URL = "https://console.anthropic.com/v1/oauth/token";
+// Anthropic movió el endpoint de renovación a platform.claude.com; el antiguo
+// console.anthropic.com/v1/oauth/token devuelve 404.
+const TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
 const OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 
 // User-Agent tipo Claude Code. El borde de la API (Cloudflare) devuelve 403 a

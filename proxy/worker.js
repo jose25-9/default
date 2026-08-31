@@ -23,7 +23,11 @@
  */
 
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
-const TOKEN_URL = "https://console.anthropic.com/v1/oauth/token";
+// Endpoint de renovación OAuth. Anthropic lo movió a platform.claude.com; el
+// antiguo console.anthropic.com/v1/oauth/token ahora devuelve 404. Se intenta
+// el nuevo primero y se cae al viejo como fallback.
+const TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
+const TOKEN_URL_FALLBACK = "https://console.anthropic.com/v1/oauth/token";
 const OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const OAUTH_BETA = "oauth-2025-04-20";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -131,24 +135,31 @@ async function handleStatus(env) {
 
 // ─── /refresh — fuerza una renovación y reporta el resultado ─────────────────
 
+// Llama al endpoint de renovación (nuevo host primero, viejo como fallback).
+async function postTokenRefresh(refresh) {
+  const headers = {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "User-Agent": USER_AGENT,
+  };
+  const body = JSON.stringify({
+    grant_type: "refresh_token",
+    refresh_token: refresh,
+    client_id: OAUTH_CLIENT_ID,
+  });
+  let r = await fetch(TOKEN_URL, { method: "POST", headers, body });
+  // Si el host nuevo no encuentra la ruta, probamos el antiguo.
+  if (r.status === 404) {
+    r = await fetch(TOKEN_URL_FALLBACK, { method: "POST", headers, body });
+  }
+  return r;
+}
+
 async function handleRefresh(env) {
   const refresh = await env.OAUTH.get("refresh");
   if (!refresh) return json({ ok: false, error: "no_refresh_token" }, 400);
 
-  const r = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "User-Agent": USER_AGENT,
-    },
-    body: JSON.stringify({
-      grant_type: "refresh_token",
-      refresh_token: refresh,
-      client_id: OAUTH_CLIENT_ID,
-    }),
-  });
-
+  const r = await postTokenRefresh(refresh);
   const text = await r.text();
   let j = null;
   try { j = JSON.parse(text); } catch (e) { /* no-JSON */ }
@@ -233,20 +244,7 @@ async function getAccessToken(env) {
   if (access && Date.now() < expires - 60000) return access;
   if (!refresh) return access; // sin refresh: se usa el access tal cual
 
-  const r = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "User-Agent": USER_AGENT,
-    },
-    body: JSON.stringify({
-      grant_type: "refresh_token",
-      refresh_token: refresh,
-      client_id: OAUTH_CLIENT_ID,
-    }),
-  });
-
+  const r = await postTokenRefresh(refresh);
   if (!r.ok) return access; // último recurso: probamos con el que había
   const j = await r.json().catch(() => null);
   if (j && j.access_token) {
