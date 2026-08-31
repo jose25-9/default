@@ -45,6 +45,12 @@ export default {
       if (url.pathname === "/seed" && request.method === "POST") {
         return await handleSeed(request, env);
       }
+      if (url.pathname === "/refresh" && request.method === "POST") {
+        return await handleRefresh(env);
+      }
+      if (url.pathname === "/status" && request.method === "GET") {
+        return await handleStatus(env);
+      }
       if (url.pathname === "/usage" && request.method === "GET") {
         return await handleUsage(env);
       }
@@ -101,6 +107,74 @@ async function handleSeed(request, env) {
   await Promise.all(ops);
 
   return json({ ok: true, stored: { access: !!access, refresh: !!refresh } });
+}
+
+// ─── /status — estado de las credenciales en KV (sin exponer tokens) ────────
+
+async function handleStatus(env) {
+  const [access, refresh, expiresStr] = await Promise.all([
+    env.OAUTH.get("access"),
+    env.OAUTH.get("refresh"),
+    env.OAUTH.get("expires"),
+  ]);
+  const expires = Number(expiresStr) || 0;
+  const now = Date.now();
+  return json({
+    has_access: !!access,
+    has_refresh: !!refresh,
+    access_valid: !!access && now < expires - 60000,
+    expires_at: expires ? new Date(expires).toISOString() : null,
+    expires_in_seconds: expires ? Math.round((expires - now) / 1000) : null,
+    server_time: new Date(now).toISOString(),
+  });
+}
+
+// ─── /refresh — fuerza una renovación y reporta el resultado ─────────────────
+
+async function handleRefresh(env) {
+  const refresh = await env.OAUTH.get("refresh");
+  if (!refresh) return json({ ok: false, error: "no_refresh_token" }, 400);
+
+  const r = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "User-Agent": USER_AGENT,
+    },
+    body: JSON.stringify({
+      grant_type: "refresh_token",
+      refresh_token: refresh,
+      client_id: OAUTH_CLIENT_ID,
+    }),
+  });
+
+  const text = await r.text();
+  let j = null;
+  try { j = JSON.parse(text); } catch (e) { /* no-JSON */ }
+
+  if (r.ok && j && j.access_token) {
+    const ops = [env.OAUTH.put("access", j.access_token)];
+    if (j.refresh_token) ops.push(env.OAUTH.put("refresh", j.refresh_token));
+    const ttl = Number(j.expires_in) || 0;
+    ops.push(env.OAUTH.put("expires", String(Date.now() + ttl * 1000)));
+    await Promise.all(ops);
+    return json({
+      ok: true,
+      refreshed: true,
+      rotated_refresh: !!j.refresh_token,
+      expires_in: j.expires_in,
+    });
+  }
+
+  // Falló: devolvemos el motivo (sin tokens). "invalid_grant" = el refresh
+  // token fue revocado o rotado por otro cliente (p. ej. Claude Code).
+  return json({
+    ok: false,
+    token_status: r.status,
+    error: j ? (j.error || j.type) : null,
+    error_description: j ? (j.error_description || j.message) : safeParse(text),
+  }, 200);
 }
 
 // ─── /usage — obtener el uso desde Anthropic ────────────────────────────────
